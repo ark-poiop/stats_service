@@ -513,19 +513,55 @@
       }).join('');
     }
 
-    function populateVariableSelectors(fields) {
+  function populateVariableSelectors(fields) {
       const indep = document.getElementById('independent-variable');
       const dep = document.getElementById('dependent-variable');
+      const group = document.getElementById('grouping-variable');
+      const addVars = document.getElementById('additional-vars');
       const options = fields.map(f => `<option value="${f}">${f}</option>`).join('');
       indep.innerHTML = '<option disabled selected>독립변수 선택</option>' + options;
       dep.innerHTML = '<option disabled selected>종속변수 선택</option>' + options;
+      if (group) group.innerHTML = '<option disabled selected>그룹 변수 선택</option>' + options;
+      if (addVars) addVars.innerHTML = options;
+    }
+
+    document.getElementById('analysis-method').addEventListener('change', function() {
+      const method = this.value;
+      const opts = document.getElementById('additional-options');
+      const groupSel = document.getElementById('grouping-variable');
+      const addSel = document.getElementById('additional-vars');
+
+      if (method === 'regression-multiple') {
+        opts.style.display = 'block';
+        groupSel.style.display = 'none';
+        addSel.style.display = 'block';
+      } else if (['ttest-ind', 'anova-one', 'mann-whitney'].includes(method)) {
+        opts.style.display = 'block';
+        groupSel.style.display = 'block';
+        addSel.style.display = 'none';
+      } else {
+        opts.style.display = 'none';
+      }
+    });
+
+    function groupDataByVariable(groupVar, valueVar) {
+      const groups = {};
+      uploadedData.forEach(row => {
+        const g = row[groupVar];
+        const v = parseFloat(row[valueVar]);
+        if (!isNaN(v)) {
+          if (!groups[g]) groups[g] = [];
+          groups[g].push(v);
+        }
+      });
+      return groups;
     }
 
     function runAnalysis() {
       const method = document.getElementById('analysis-method').value;
       const y = document.getElementById('dependent-variable').value;
       const x = document.getElementById('independent-variable').value;
-      
+      const groupVar = document.getElementById('grouping-variable').value;      
       if (!method || !y || !x) {
         alert('필수 분석 옵션을 선택해주세요.');
         return;
@@ -536,6 +572,35 @@
 
       if (yData.length === 0 || xData.length === 0) {
         alert('유효한 수치형 데이터가 필요합니다.');
+        return;
+      }
+
+       // 그룹 변수를 사용하는 분석의 경우 데이터 분리
+      if (['ttest-ind', 'anova-one', 'mann-whitney'].includes(method)) {
+        if (!groupVar) {
+          alert('그룹 변수를 선택해주세요.');
+          return;
+        }
+        const groups = groupDataByVariable(groupVar, y);
+        const labels = Object.keys(groups);
+        if (labels.length < 2) {
+          alert('선택한 그룹 변수가 두 개 이상의 범주를 가져야 합니다.');
+          return;
+        }
+        const g1 = groups[labels[0]];
+        const g2 = groups[labels[1]];
+
+        switch (method) {
+          case 'ttest-ind':
+            performIndependentTTest(labels[0], labels[1], g1, g2);
+            break;
+          case 'anova-one':
+            performOneWayANOVA(labels[0], labels[1], g1, g2);
+            break;
+          case 'mann-whitney':
+            performMannWhitneyTest(labels[0], labels[1], g1, g2);
+            break;
+        }
         return;
       }
 
@@ -1204,8 +1269,7 @@
       `;
 
       // 회귀선이 포함된 산점도 시각화
-      showRegressionPlot(xLabel, yLabel, xData, yData, regression);
-    }
+      showMultipleRegressionPlot(xLabel, yLabel, xData, yData, coefficients, additionalVars, r2);
 
     function calculateRegression(x, y) {
       const n = x.length;
@@ -1913,7 +1977,7 @@
       return { coefficients, r2, pValues, fStat, fPValue };
     }
 
-    function showMultipleRegressionPlot(xLabel, yLabel, xData, yData, coefficients, additionalVars) {
+    function showMultipleRegressionPlot(xLabel, yLabel, xData, yData, coefficients, additionalVars, r2) {
       const trace1 = {
         x: xData,
         y: yData,
@@ -1941,11 +2005,11 @@
         line: { color: 'red' }
       };
 
-      const layout = {
-        title: `다중 회귀 분석 (R² = ${coefficients.r2.toFixed(3)})`,
-        xaxis: { title: xLabel },
-        yaxis: { title: yLabel }
-      };
+      const layout = {␊
+        title: `다중 회귀 분석 (R² = ${r2.toFixed(3)})`,
+        xaxis: { title: xLabel },␊
+        yaxis: { title: yLabel }␊
+      };␊
 
       Plotly.newPlot('plotArea', [trace1, trace2], layout);
     }
