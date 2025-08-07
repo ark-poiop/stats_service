@@ -1,0 +1,32 @@
+{
+  "name": "stats-service",
+  "version": "2.0.0",
+  "description": "고도화된 웹 기반 통계 분석 서비스",
+  "main": "index.html",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "dev": "python3 -m http.server 8000",
+    "build": "echo 'Build completed'",
+    "test": "echo 'No tests specified'"
+  },
+  "keywords": [
+    "statistics",
+    "data-analysis",
+    "web-app",
+    "visualization"
+  ],
+  "author": "Stats Service Team",
+  "license": "MIT",
+  "dependencies": {
+    "papaparse": "^5.4.1",
+    "plotly.js": "^2.27.0",
+    "mathjs": "^9.4.4",
+    "simple-statistics": "^7.7.0"
+  },
+  "devDependencies": {},
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not dead"
+  ]
+}
