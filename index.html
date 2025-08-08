@@ -361,15 +361,26 @@
   </div>
 
   <!-- 스크립트 로드 순서 -->
-  <script src="js/config.js"></script>
-  <script src="js/utils.js"></script>
-  <script src="js/components.js"></script>
-  <script src="js/statistics.js"></script>
-  <script src="js/app.js"></script>
-
-  <!-- 애플리케이션 초기화 -->
   <script>
-    window.addEventListener('load', () => {
+    // 모듈 로드 상태 추적
+    const moduleLoadStatus = {
+      'simple-statistics': false,
+      'config': false,
+      'utils': false,
+      'components': false,
+      'statistics': false,
+      'app': false
+    };
+
+    // 모든 모듈이 로드되었는지 확인
+    function checkAllModulesLoaded() {
+      return Object.values(moduleLoadStatus).every(status => status);
+    }
+
+    // 애플리케이션 초기화
+    function initializeApp() {
+      if (!checkAllModulesLoaded()) return;
+
       // simple-statistics를 전역 ss 변수로 설정
       window.ss = window.ss || window.simpleStatistics;
 
@@ -387,14 +398,46 @@
         .map(([name]) => name);
 
       if (missingModules.length > 0) {
-        Components.Toast.error(`다음 모듈이 로드되지 않았습니다: ${missingModules.join(', ')}`);
+        console.error(`다음 모듈이 로드되지 않았습니다: ${missingModules.join(', ')}`);
+        if (window.Components && window.Components.Toast) {
+          window.Components.Toast.error(`다음 모듈이 로드되지 않았습니다: ${missingModules.join(', ')}`);
+        }
         return;
       }
 
       // 애플리케이션 초기화
       window.app = new StatsApp();
       console.log('애플리케이션이 성공적으로 초기화되었습니다.');
-    });
+    }
+
+    // 각 스크립트 로드 완료 처리
+    function handleScriptLoad(moduleName) {
+      moduleLoadStatus[moduleName] = true;
+      console.log(`${moduleName} 모듈이 로드되었습니다.`);
+      initializeApp();
+    }
   </script>
+
+  <!-- simple-statistics 라이브러리 -->
+  <script src="https://cdn.jsdelivr.net/npm/simple-statistics@7.7.0/dist/simple-statistics.min.js" 
+          onload="handleScriptLoad('simple-statistics')" 
+          onerror="console.error('simple-statistics 로드 실패')"></script>
+
+  <!-- 애플리케이션 스크립트 -->
+  <script src="js/config.js" 
+          onload="handleScriptLoad('config')" 
+          onerror="console.error('config.js 로드 실패')"></script>
+  <script src="js/utils.js" 
+          onload="handleScriptLoad('utils')" 
+          onerror="console.error('utils.js 로드 실패')"></script>
+  <script src="js/components.js" 
+          onload="handleScriptLoad('components')" 
+          onerror="console.error('components.js 로드 실패')"></script>
+  <script src="js/statistics.js" 
+          onload="handleScriptLoad('statistics')" 
+          onerror="console.error('statistics.js 로드 실패')"></script>
+  <script src="js/app.js" 
+          onload="handleScriptLoad('app')" 
+          onerror="console.error('app.js 로드 실패')"></script>
 </body>
 </html>
