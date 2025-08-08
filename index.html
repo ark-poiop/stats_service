@@ -364,29 +364,55 @@
     </div>
   </div>
 
+  <!-- 외부 라이브러리 초기화 -->
+  <script>
+    // simple-statistics를 전역 ss 변수로 설정
+    window.ss = null;
+    window.simpleStatistics = null;
+    window.addEventListener('load', () => {
+      window.ss = window.ss || window.simpleStatistics;
+      if (!window.ss) {
+        console.error('simple-statistics 라이브러리가 로드되지 않았습니다.');
+      }
+    });
+  </script>
+
   <!-- 스크립트 로드 순서 -->
   <script src="js/config.js"></script>
   <script src="js/utils.js"></script>
   <script src="js/components.js"></script>
   <script src="js/statistics.js"></script>
+  <script src="js/app.js"></script>
+
+  <!-- 애플리케이션 초기화 -->
   <script>
-    // 모든 필수 라이브러리와 모듈이 로드되었는지 확인
     window.addEventListener('load', () => {
+      // 모듈 로드 확인
       if (!window.ss) {
-        console.error('simple-statistics 라이브러리가 로드되지 않았습니다.');
+        Components.Toast.error('simple-statistics 라이브러리가 로드되지 않았습니다.');
         return;
       }
       if (!window.Statistics) {
-        console.error('Statistics 모듈이 로드되지 않았습니다.');
+        Components.Toast.error('Statistics 모듈이 로드되지 않았습니다.');
         return;
       }
       if (!window.CONFIG) {
-        console.error('CONFIG 모듈이 로드되지 않았습니다.');
+        Components.Toast.error('CONFIG 모듈이 로드되지 않았습니다.');
         return;
       }
-      console.log('모든 모듈이 성공적으로 로드되었습니다.');
+      if (!window.Utils) {
+        Components.Toast.error('Utils 모듈이 로드되지 않았습니다.');
+        return;
+      }
+      if (!window.Components) {
+        Components.Toast.error('Components 모듈이 로드되지 않았습니다.');
+        return;
+      }
+
+      // 애플리케이션 초기화
+      window.app = new StatsApp();
+      console.log('애플리케이션이 성공적으로 초기화되었습니다.');
     });
   </script>
-  <script src="js/app.js"></script>
 </body>
 </html>
