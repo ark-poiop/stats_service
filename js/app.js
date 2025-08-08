@@ -223,6 +223,7 @@ class StatsApp {
     };
     
     switch (method) {
+      // 기술통계 분석
       case 'descriptive':
         result.statistics = {
           x: Statistics.Descriptive.calculate(xData),
@@ -230,15 +231,101 @@ class StatsApp {
         };
         result.chart = this.createHistogramChart(xData, yData, independentVar, dependentVar);
         break;
+
+      case 'dispersion':
+        result.statistics = {
+          x: Statistics.Descriptive.dispersion(xData),
+          y: Statistics.Descriptive.dispersion(yData)
+        };
+        result.chart = this.createBoxPlotChart(xData, yData, independentVar, dependentVar);
+        break;
+
+      case 'distribution':
+        result.statistics = {
+          x: Statistics.Descriptive.distribution(xData),
+          y: Statistics.Descriptive.distribution(yData)
+        };
+        result.chart = this.createQQPlotChart(xData, yData, independentVar, dependentVar);
+        break;
+
+      case 'frequency':
+        result.statistics = {
+          x: Statistics.Descriptive.frequency(xData),
+          y: Statistics.Descriptive.frequency(yData)
+        };
+        result.chart = this.createHistogramChart(xData, yData, independentVar, dependentVar);
+        break;
         
+      // 시각화
+      case 'histogram':
+        result.statistics = {
+          x: Statistics.Descriptive.calculate(xData),
+          y: Statistics.Descriptive.calculate(yData)
+        };
+        result.chart = this.createHistogramChart(xData, yData, independentVar, dependentVar);
+        break;
+
+      case 'boxplot':
+        result.statistics = {
+          x: Statistics.Descriptive.dispersion(xData),
+          y: Statistics.Descriptive.dispersion(yData)
+        };
+        result.chart = this.createBoxPlotChart(xData, yData, independentVar, dependentVar);
+        break;
+
       case 'scatter':
         result.statistics = Statistics.Correlation.pearson(xData, yData);
         result.chart = this.createScatterChart(xData, yData, independentVar, dependentVar);
         break;
-        
+
+      case 'heatmap':
+        result.statistics = Statistics.Correlation.pearson(xData, yData);
+        result.chart = this.createHeatmapChart(xData, yData, independentVar, dependentVar);
+        break;
+
+      case 'timeseries':
+        result.statistics = Statistics.TimeSeries.analyze(xData, yData);
+        result.chart = this.createTimeSeriesChart(xData, yData, independentVar, dependentVar);
+        break;
+
+      // 상관 및 회귀
       case 'regression-simple':
         result.statistics = Statistics.Regression.simpleLinear(xData, yData);
         result.chart = this.createRegressionChart(xData, yData, independentVar, dependentVar, result.statistics);
+        break;
+
+      // 가설검정
+      case 'ttest-ind':
+        result.statistics = Statistics.HypothesisTest.independentTTest(xData, yData);
+        result.chart = this.createBoxPlotChart(xData, yData, independentVar, dependentVar);
+        break;
+
+      case 'ttest-paired':
+        result.statistics = Statistics.HypothesisTest.pairedTTest(xData, yData);
+        result.chart = this.createScatterChart(xData, yData, independentVar, dependentVar);
+        break;
+
+      case 'anova-one':
+        // ANOVA는 두 개 이상의 그룹이 필요하므로, 데이터를 그룹화
+        const groups = this.groupDataForANOVA(xData, yData);
+        result.statistics = Statistics.HypothesisTest.oneWayANOVA(groups);
+        result.chart = this.createBoxPlotChart(xData, yData, independentVar, dependentVar);
+        break;
+
+      case 'chi-square':
+        result.statistics = Statistics.HypothesisTest.chiSquareTest(xData, yData);
+        result.chart = this.createBarChart(xData, yData, independentVar, dependentVar);
+        break;
+
+      // 비모수 검정
+      case 'mann-whitney':
+        result.statistics = Statistics.NonParametric.mannWhitney(xData, yData);
+        result.chart = this.createBoxPlotChart(xData, yData, independentVar, dependentVar);
+        break;
+
+      case 'wilcoxon':
+        result.statistics = Statistics.NonParametric.wilcoxonSignedRank(xData, yData);
+        result.chart = this.createScatterChart(xData, yData, independentVar, dependentVar);
         break;
         
       default:
@@ -321,6 +408,167 @@ class StatsApp {
         title: `단순선형회귀 (R² = ${regression.r2.toFixed(3)})`,
         xaxis: { title: xLabel },
         yaxis: { title: yLabel }
+      }
+    };
+  }
+
+  // 박스플롯 차트 생성
+  createBoxPlotChart(xData, yData, xLabel, yLabel) {
+    const trace1 = {
+      y: xData,
+      type: 'box',
+      name: xLabel,
+      boxpoints: 'outliers'
+    };
+
+    const trace2 = {
+      y: yData,
+      type: 'box',
+      name: yLabel,
+      boxpoints: 'outliers'
+    };
+
+    return {
+      data: [trace1, trace2],
+      layout: {
+        title: '박스플롯',
+        showlegend: true,
+        yaxis: { title: '값' }
+      }
+    };
+  }
+
+  // Q-Q 플롯 차트 생성
+  createQQPlotChart(xData, yData, xLabel, yLabel) {
+    // 정규분포 이론적 분위수 계산
+    const calculateTheoretical = (data) => {
+      const n = data.length;
+      const sorted = [...data].sort((a, b) => a - b);
+      return sorted.map((_, i) => {
+        const p = (i + 0.5) / n;
+        return ss.probit(p);
+      });
+    };
+
+    const trace1 = {
+      x: calculateTheoretical(xData),
+      y: [...xData].sort((a, b) => a - b),
+      mode: 'markers',
+      type: 'scatter',
+      name: xLabel
+    };
+
+    const trace2 = {
+      x: calculateTheoretical(yData),
+      y: [...yData].sort((a, b) => a - b),
+      mode: 'markers',
+      type: 'scatter',
+      name: yLabel
+    };
+
+    return {
+      data: [trace1, trace2],
+      layout: {
+        title: 'Q-Q Plot (정규성 검정)',
+        xaxis: { title: '이론적 분위수' },
+        yaxis: { title: '관측 분위수' }
+      }
+    };
+  }
+
+  // 히트맵 차트 생성
+  createHeatmapChart(xData, yData, xLabel, yLabel) {
+    const correlationMatrix = [
+      [1, Statistics.Correlation.pearson(xData, yData).correlation],
+      [Statistics.Correlation.pearson(yData, xData).correlation, 1]
+    ];
+
+    const trace = {
+      z: correlationMatrix,
+      x: [xLabel, yLabel],
+      y: [xLabel, yLabel],
+      type: 'heatmap',
+      colorscale: 'RdBu',
+      zmin: -1,
+      zmax: 1
+    };
+
+    return {
+      data: [trace],
+      layout: {
+        title: '상관관계 히트맵',
+        width: 500,
+        height: 500
+      }
+    };
+  }
+
+  // 시계열 차트 생성
+  createTimeSeriesChart(xData, yData, xLabel, yLabel) {
+    const trace1 = {
+      x: Array.from({ length: xData.length }, (_, i) => i),
+      y: xData,
+      mode: 'lines+markers',
+      name: xLabel
+    };
+
+    const trace2 = {
+      x: Array.from({ length: yData.length }, (_, i) => i),
+      y: yData,
+      mode: 'lines+markers',
+      name: yLabel
+    };
+
+    return {
+      data: [trace1, trace2],
+      layout: {
+        title: '시계열 그래프',
+        xaxis: { title: '시점' },
+        yaxis: { title: '값' }
+      }
+    };
+  }
+
+  // ANOVA를 위한 데이터 그룹화
+  groupDataForANOVA(xData, yData) {
+    // 독립변수의 고유값을 기준으로 그룹화
+    const uniqueX = [...new Set(xData)];
+    return uniqueX.map(x => 
+      yData.filter((_, i) => xData[i] === x)
+    );
+  }
+
+  // 막대 차트 생성
+  createBarChart(xData, yData, xLabel, yLabel) {
+    // 빈도수 계산
+    const frequencies = {};
+    xData.forEach((x, i) => {
+      const key = `${x}-${yData[i]}`;
+      frequencies[key] = (frequencies[key] || 0) + 1;
+    });
+
+    // 데이터 포인트 생성
+    const uniqueX = [...new Set(xData)];
+    const uniqueY = [...new Set(yData)];
+    const data = [];
+
+    uniqueX.forEach(x => {
+      const trace = {
+        x: uniqueY,
+        y: uniqueY.map(y => frequencies[`${x}-${y}`] || 0),
+        name: String(x),
+        type: 'bar'
+      };
+      data.push(trace);
+    });
+
+    return {
+      data,
+      layout: {
+        title: '범주형 데이터 분포',
+        barmode: 'group',
+        xaxis: { title: yLabel },
+        yaxis: { title: '빈도' }
       }
     };
   }
