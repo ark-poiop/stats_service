@@ -219,24 +219,310 @@ const Statistics = {
       };
     },
 
-    // 일원분산분석 (ANOVA)
+
+// 통계 분석 기능 모듈
+const Statistics = {
+  // 기술통계 분석
+  Descriptive: {
+    /**
+     * 기본 기술통계 계산
+     * @param {Array} data - 분석할 데이터
+     * @returns {Object} 기술통계 결과
+     */
+    calculate(data) {
+      Utils.validateInput(data);
+      const numericData = Utils.toNumeric(data);
+      
+      if (numericData.length === 0) {
+        throw new Error('수치형 데이터가 없습니다.');
+      }
+
+      const mean = MathUtils.mean(numericData);
+      const std = MathUtils.standardDeviation(numericData);
+      const variance = MathUtils.variance(numericData);
+      const min = Math.min(...numericData);
+      const max = Math.max(...numericData);
+
+      return {
+        count: numericData.length,
+        mean,
+        median: MathUtils.median(numericData),
+        mode: MathUtils.mode(numericData),
+        std,
+        variance,
+        min,
+        max,
+        range: max - min,
+        q1: MathUtils.quantile(numericData, 0.25),
+        q2: MathUtils.quantile(numericData, 0.50),
+        q3: MathUtils.quantile(numericData, 0.75),
+        iqr: MathUtils.quantile(numericData, 0.75) - MathUtils.quantile(numericData, 0.25),
+        skewness: MathUtils.skewness(numericData),
+        kurtosis: MathUtils.kurtosis(numericData),
+        cv: mean !== 0 ? (std / Math.abs(mean)) * 100 : 0
+      };
+    },
+
+    /**
+     * 산포도 분석
+     * @param {Array} data - 분석할 데이터
+     * @returns {Object} 산포도 분석 결과
+     */
+    dispersion(data) {
+      const stats = this.calculate(data);
+      return {
+        std: stats.std,
+        variance: stats.variance,
+        range: stats.range,
+        iqr: stats.iqr,
+        cv: stats.cv,
+        interpretation: this.interpretDispersion(stats)
+      };
+    },
+
+    /**
+     * 분포 분석
+     * @param {Array} data - 분석할 데이터
+     * @returns {Object} 분포 분석 결과
+     */
+    distribution(data) {
+      const stats = this.calculate(data);
+      return {
+        q1: stats.q1,
+        q2: stats.q2,
+        q3: stats.q3,
+        skewness: stats.skewness,
+        kurtosis: stats.kurtosis,
+        normality: this.testNormality(data),
+        interpretation: this.interpretDistribution(stats)
+      };
+    },
+
+    /**
+     * 도수분포표 생성
+     * @param {Array} data - 데이터
+     * @param {number} bins - 구간 수
+     * @returns {Array} 도수분포표
+     */
+    frequency(data, bins = CONFIG.STATS.DEFAULT_BINS) {
+      const numericData = Utils.toNumeric(data);
+      const min = Math.min(...numericData);
+      const max = Math.max(...numericData);
+      const binWidth = (max - min) / bins;
+      
+      const frequencies = new Array(bins).fill(0);
+      const binRanges = [];
+      
+      // 구간 범위 계산
+      for (let i = 0; i < bins; i++) {
+        const start = min + (i * binWidth);
+        const end = start + binWidth;
+        binRanges.push([start, end]);
+      }
+      
+      // 빈도수 계산
+      numericData.forEach(value => {
+        const binIndex = Math.min(Math.floor((value - min) / binWidth), bins - 1);
+        frequencies[binIndex]++;
+      });
+      
+      // 상대도수와 누적도수 계산
+      const total = numericData.length;
+      let cumulative = 0;
+      
+      return binRanges.map((range, i) => {
+        const frequency = frequencies[i];
+        const relativeFreq = frequency / total;
+        cumulative += frequency;
+        
+        return {
+          range: {
+            start: range[0],
+            end: range[1],
+            label: `${range[0].toFixed(2)} - ${range[1].toFixed(2)}`
+          },
+          frequency,
+          relativeFrequency: relativeFreq,
+          cumulativeFrequency: cumulative,
+          cumulativeRelativeFrequency: cumulative / total
+        };
+      });
+    },
+
+    /**
+     * 산포도 해석
+     */
+    interpretDispersion(stats) {
+      const cvInterpretation = stats.cv < 15 ? '낮음' :
+                              stats.cv < 30 ? '중간' : '높음';
+      
+      return {
+        variability: cvInterpretation,
+        summary: `변동계수(CV)는 ${stats.cv.toFixed(2)}%로, 데이터의 상대적 산포도는 ${cvInterpretation}입니다.`
+      };
+    },
+
+    /**
+     * 분포 해석
+     */
+    interpretDistribution(stats) {
+      const skewInterpretation = Math.abs(stats.skewness) < 0.5 ? '대칭에 가까움' :
+                                Math.abs(stats.skewness) < 1 ? '약간 비대칭' : '심한 비대칭';
+      
+      const kurtosisInterpretation = Math.abs(stats.kurtosis) < 0.5 ? '정규분포에 가까움' :
+                                    Math.abs(stats.kurtosis) < 1 ? '약간 다름' : '매우 다름';
+      
+      return {
+        skewness: skewInterpretation,
+        kurtosis: kurtosisInterpretation,
+        summary: `분포는 ${skewInterpretation}이며, 첨도는 정규분포와 ${kurtosisInterpretation}입니다.`
+      };
+    },
+
+    /**
+     * 정규성 검정 (간단한 버전)
+     */
+    testNormality(data) {
+      const stats = this.calculate(data);
+      const skewness = Math.abs(stats.skewness);
+      const kurtosis = Math.abs(stats.kurtosis);
+      
+      let normality = '정규분포에 가까움';
+      if (skewness > 1 || kurtosis > 1) {
+        normality = '정규분포와 차이 있음';
+      } else if (skewness > 0.5 || kurtosis > 0.5) {
+        normality = '약간의 차이 있음';
+      }
+      
+      return {
+        skewness: stats.skewness,
+        kurtosis: stats.kurtosis,
+        normality,
+        isNormal: skewness <= 1 && kurtosis <= 1
+      };
+    }
+  },
+
+  // 가설검정
+  HypothesisTest: {
+    /**
+     * 독립표본 t-검정 (Welch's t-test)
+     * @param {Array} group1 - 첫 번째 그룹
+     * @param {Array} group2 - 두 번째 그룹
+     * @returns {Object} t-검정 결과
+     */
+    independentTTest(group1, group2) {
+      Utils.validateInput(group1, 2);
+      Utils.validateInput(group2, 2);
+
+      const n1 = group1.length;
+      const n2 = group2.length;
+      const mean1 = MathUtils.mean(group1);
+      const mean2 = MathUtils.mean(group2);
+      const var1 = MathUtils.variance(group1);
+      const var2 = MathUtils.variance(group2);
+      
+      // Welch's t-test
+      const standardError = Math.sqrt((var1/n1) + (var2/n2));
+      const t = (mean1 - mean2) / standardError;
+      
+      // Welch-Satterthwaite equation for degrees of freedom
+      const df = Math.floor(
+        Math.pow((var1/n1 + var2/n2), 2) / 
+        (Math.pow(var1/n1, 2)/(n1-1) + Math.pow(var2/n2, 2)/(n2-1))
+      );
+      
+      const pValue = 2 * (1 - Distributions.tCDF(Math.abs(t), df));
+      
+      // Cohen's d (pooled standard deviation)
+      const pooledStd = Math.sqrt(((n1-1)*var1 + (n2-1)*var2) / (n1+n2-2));
+      const cohensD = Math.abs(mean1 - mean2) / pooledStd;
+      
+      const significant = pValue < CONFIG.STATS.SIGNIFICANCE_LEVEL;
+      
+      return {
+        t: Number(t.toFixed(4)),
+        df,
+        pValue: Number(pValue.toFixed(4)),
+        cohensD: Number(cohensD.toFixed(4)),
+        significant,
+        effectSize: this.interpretEffectSize(cohensD),
+        mean1: Number(mean1.toFixed(4)),
+        mean2: Number(mean2.toFixed(4)),
+        standardError: Number(standardError.toFixed(4)),
+        n1,
+        n2,
+        summary: `t(${df}) = ${t.toFixed(3)}, p = ${pValue.toFixed(3)}, Cohen's d = ${cohensD.toFixed(3)}`
+      };
+    },
+
+    /**
+     * 대응표본 t-검정
+     * @param {Array} before - 사전 측정값
+     * @param {Array} after - 사후 측정값
+     * @returns {Object} 대응표본 t-검정 결과
+     */
+    pairedTTest(before, after) {
+      if (before.length !== after.length) {
+        throw new Error('대응표본의 크기가 같아야 합니다.');
+      }
+      Utils.validateInput(before, 2);
+
+      const differences = before.map((b, i) => after[i] - b);
+      const n = differences.length;
+      const meanDiff = MathUtils.mean(differences);
+      const stdDiff = MathUtils.standardDeviation(differences);
+      const standardError = stdDiff / Math.sqrt(n);
+      const t = meanDiff / standardError;
+      const df = n - 1;
+      const pValue = 2 * (1 - Distributions.tCDF(Math.abs(t), df));
+      const cohensD = Math.abs(meanDiff) / stdDiff;
+      const significant = pValue < CONFIG.STATS.SIGNIFICANCE_LEVEL;
+
+      return {
+        t: Number(t.toFixed(4)),
+        df,
+        pValue: Number(pValue.toFixed(4)),
+        cohensD: Number(cohensD.toFixed(4)),
+        significant,
+        effectSize: this.interpretEffectSize(cohensD),
+        meanDiff: Number(meanDiff.toFixed(4)),
+        standardError: Number(standardError.toFixed(4)),
+        n,
+        summary: `t(${df}) = ${t.toFixed(3)}, p = ${pValue.toFixed(3)}, Cohen's d = ${cohensD.toFixed(3)}`
+      };
+    },
+
+    /**
+     * 일원분산분석 (ANOVA)
+     * @param {Array[]} groups - 그룹들의 배열
+     * @returns {Object} ANOVA 결과
+     */
     oneWayANOVA(groups) {
+      if (!Array.isArray(groups) || groups.length < 2) {
+        throw new Error('최소 2개의 그룹이 필요합니다.');
+      }
+
       const k = groups.length; // 집단 수
       const n = groups.reduce((sum, group) => sum + group.length, 0); // 전체 표본 수
       
+      if (n - k <= 0) {
+        throw new Error('각 그룹에 충분한 데이터가 필요합니다.');
+      }
+
       // 전체 평균
       const allValues = groups.flat();
-      const grandMean = ss.mean(allValues);
+      const grandMean = MathUtils.mean(allValues);
       
       // 집단 간 제곱합 (SSB)
       const ssb = groups.reduce((sum, group) => {
-        const groupMean = ss.mean(group);
+        const groupMean = MathUtils.mean(group);
         return sum + group.length * Math.pow(groupMean - grandMean, 2);
       }, 0);
       
       // 집단 내 제곱합 (SSW)
       const ssw = groups.reduce((sum, group) => {
-        const groupMean = ss.mean(group);
+        const groupMean = MathUtils.mean(group);
         return sum + group.reduce((s, value) => s + Math.pow(value - groupMean, 2), 0);
       }, 0);
       
@@ -252,7 +538,7 @@ const Statistics = {
       const f = msb / msw;
       
       // p-값 계산
-      const pValue = 1 - ss.fDistribution.cdf(f, dfb, dfw);
+      const pValue = 1 - Distributions.fCDF(f, dfb, dfw);
       
       // 에타 제곱 (효과크기)
       const etaSquared = ssb / (ssb + ssw);
@@ -260,22 +546,29 @@ const Statistics = {
       const significant = pValue < CONFIG.STATS.SIGNIFICANCE_LEVEL;
       
       return {
-        f,
+        f: Number(f.toFixed(4)),
         dfb,
         dfw,
-        ssb,
-        ssw,
-        msb,
-        msw,
-        pValue,
-        etaSquared,
+        ssb: Number(ssb.toFixed(4)),
+        ssw: Number(ssw.toFixed(4)),
+        msb: Number(msb.toFixed(4)),
+        msw: Number(msw.toFixed(4)),
+        pValue: Number(pValue.toFixed(4)),
+        etaSquared: Number(etaSquared.toFixed(4)),
         significant,
-        effectSize: this.interpretEtaSquared(etaSquared)
+        effectSize: this.interpretEtaSquared(etaSquared),
+        summary: `F(${dfb}, ${dfw}) = ${f.toFixed(3)}, p = ${pValue.toFixed(3)}, η² = ${etaSquared.toFixed(3)}`
       };
     },
 
-    // 카이제곱 검정
+    /**
+     * 카이제곱 적합도 검정
+     * @param {Array} observed - 관찰빈도
+     * @param {Array} expected - 기대빈도 (선택적)
+     * @returns {Object} 카이제곱 검정 결과
+     */
     chiSquareTest(observed, expected = null) {
+      Utils.validateInput(observed, 1);
       const n = observed.length;
       
       // 기대빈도가 주어지지 않은 경우, 균등분포 가정
@@ -284,13 +577,23 @@ const Statistics = {
         expected = new Array(n).fill(expectedValue);
       }
       
+      if (observed.length !== expected.length) {
+        throw new Error('관찰빈도와 기대빈도의 길이가 같아야 합니다.');
+      }
+
+      // 기대빈도가 5 미만인 셀 확인
+      const lowExpected = expected.filter(e => e < 5).length;
+      if (lowExpected > 0) {
+        console.warn(`기대빈도가 5 미만인 셀이 ${lowExpected}개 있습니다. 결과 해석에 주의가 필요합니다.`);
+      }
+      
       // 카이제곱 통계량 계산
       const chiSquare = observed.reduce((sum, obs, i) => {
         return sum + Math.pow(obs - expected[i], 2) / expected[i];
       }, 0);
       
       const df = n - 1;
-      const pValue = 1 - ss.chiSquaredDistribution.cdf(chiSquare, df);
+      const pValue = 1 - Distributions.chiSquaredCDF(chiSquare, df);
       const significant = pValue < CONFIG.STATS.SIGNIFICANCE_LEVEL;
       
       // Cramer's V 계산 (효과크기)
@@ -298,16 +601,20 @@ const Statistics = {
       const cramerV = Math.sqrt(chiSquare / (totalSum * (Math.min(n, 2) - 1)));
       
       return {
-        chiSquare,
+        chiSquare: Number(chiSquare.toFixed(4)),
         df,
-        pValue,
+        pValue: Number(pValue.toFixed(4)),
         significant,
-        cramerV,
+        cramerV: Number(cramerV.toFixed(4)),
         effectSize: this.interpretCramerV(cramerV),
         observed,
-        expected
+        expected: expected.map(e => Number(e.toFixed(2))),
+        summary: `χ²(${df}) = ${chiSquare.toFixed(3)}, p = ${pValue.toFixed(3)}, Cramer's V = ${cramerV.toFixed(3)}`
       };
     },
+
+<
+
 
     // 효과크기 해석 (Cohen's d)
     interpretEffectSize(cohensD) {
@@ -384,28 +691,7 @@ const Statistics = {
 
     // 순위 계산
     calculateRanks(data) {
-      const sorted = [...data].sort((a, b) => a - b);
-      const ranks = new Array(data.length);
-      
-      for (let i = 0; i < data.length; i++) {
-        const value = data[i];
-        let rank = sorted.indexOf(value) + 1;
-        
-        // 동점 처리
-        let ties = 0;
-        for (let j = 0; j < sorted.length; j++) {
-          if (sorted[j] === value) ties++;
-        }
-        
-        if (ties > 1) {
-          const firstIndex = sorted.indexOf(value);
-          rank = (firstIndex + firstIndex + ties - 1) / 2 + 1;
-        }
-        
-        ranks[i] = rank;
-      }
-      
-      return ranks;
+      return Statistics.Utils.calculateRanks(data);
     },
 
     // 상관계수 해석
@@ -421,6 +707,48 @@ const Statistics = {
 
   // 회귀분석
   Regression: {
+    // 행렬 연산 헬퍼 함수들
+    transposeMatrix(matrix) {
+      return matrix[0].map((_, i) => matrix.map(row => row[i]));
+    },
+
+    matrixMultiply(a, b) {
+      if (typeof b[0] === 'number') {
+        return a.map(row => row.reduce((sum, ai, i) => sum + ai * b[i], 0));
+      }
+      return a.map(row => 
+        b[0].map((_, j) => row.reduce((sum, ai, i) => sum + ai * b[i][j], 0))
+      );
+    },
+
+    matrixInverse(matrix) {
+      const n = matrix.length;
+      const augmented = matrix.map((row, i) => {
+        const identity = new Array(n).fill(0);
+        identity[i] = 1;
+        return [...row, ...identity];
+      });
+      
+      // 가우스-조르단 소거법
+      for (let i = 0; i < n; i++) {
+        const pivot = augmented[i][i];
+        for (let j = 0; j < 2 * n; j++) {
+          augmented[i][j] /= pivot;
+        }
+        
+        for (let k = 0; k < n; k++) {
+          if (k !== i) {
+            const factor = augmented[k][i];
+            for (let j = 0; j < 2 * n; j++) {
+              augmented[k][j] -= factor * augmented[i][j];
+            }
+          }
+        }
+      }
+      
+      return augmented.map(row => row.slice(n));
+    },
+
     // 단순선형회귀
     simpleLinear(x, y) {
       if (x.length !== y.length) {
@@ -465,6 +793,57 @@ const Statistics = {
         se,
         significant: pValue < CONFIG.STATS.SIGNIFICANCE_LEVEL,
         equation: `y = ${intercept.toFixed(3)} + ${slope.toFixed(3)}x`
+      };
+    },
+
+    // 다중회귀
+    multipleLinear(X, y) {
+      const n = X.length;
+      const k = X[0].length;
+      
+      // 최소제곱 추정
+      const Xt = this.transposeMatrix(X);
+      const XtX = this.matrixMultiply(Xt, X);
+      const XtXInv = this.matrixInverse(XtX);
+      const Xty = this.matrixMultiply(Xt, y);
+      const coefficients = this.matrixMultiply(XtXInv, Xty);
+      
+      // 예측값 계산
+      const yPred = X.map(row => 
+        row.reduce((sum, xi, i) => sum + xi * coefficients[i], 0)
+      );
+      
+      // R² 계산
+      const yMean = ss.mean(y);
+      const ssRes = y.reduce((acc, yi, i) => acc + Math.pow(yi - yPred[i], 2), 0);
+      const ssTot = y.reduce((acc, yi) => acc + Math.pow(yi - yMean, 2), 0);
+      const r2 = 1 - (ssRes / ssTot);
+      
+      // F 통계량과 p-값
+      const dfReg = k - 1;
+      const dfRes = n - k;
+      const msReg = (ssTot - ssRes) / dfReg;
+      const msRes = ssRes / dfRes;
+      const fStat = msReg / msRes;
+      const fPValue = 1 - ss.fDistribution.cdf(fStat, dfReg, dfRes);
+      
+      // 각 계수의 p-값 계산
+      const pValues = coefficients.map((coef, i) => {
+        const se = Math.sqrt(msRes * XtXInv[i][i]);
+        const t = coef / se;
+        return 2 * (1 - ss.tDistribution.cdf(Math.abs(t), dfRes));
+      });
+      
+      return {
+        coefficients,
+        r2,
+        fStat,
+        fPValue,
+        pValues,
+        significant: fPValue < CONFIG.STATS.SIGNIFICANCE_LEVEL,
+        equation: `y = ${coefficients.map((coef, i) => 
+          `${coef.toFixed(3)}${i === 0 ? '' : `x${i}`}`
+        ).join(' + ')}`
       };
     }
   },
@@ -561,28 +940,7 @@ const Statistics = {
 
     // 순위 계산 (동점 처리 포함)
     calculateRanks(data) {
-      const sorted = [...data].sort((a, b) => a - b);
-      const ranks = new Array(data.length);
-      
-      for (let i = 0; i < data.length; i++) {
-        const value = data[i];
-        let rank = sorted.indexOf(value) + 1;
-        
-        // 동점 처리
-        let ties = 0;
-        for (let j = 0; j < sorted.length; j++) {
-          if (sorted[j] === value) ties++;
-        }
-        
-        if (ties > 1) {
-          const firstIndex = sorted.indexOf(value);
-          rank = (firstIndex + firstIndex + ties - 1) / 2 + 1;
-        }
-        
-        ranks[i] = rank;
-      }
-      
-      return ranks;
+      return Statistics.Utils.calculateRanks(data);
     }
   },
 
@@ -596,7 +954,7 @@ const Statistics = {
       return {
         trend,
         seasonality,
-        correlation: Statistics.Correlation.pearson(x, y)
+        correlation: ss.sampleCorrelation(x, y)
       };
     },
 

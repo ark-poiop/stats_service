@@ -10,10 +10,6 @@
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mathjs@9.4.4/lib/browser/math.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/simple-statistics@7.7.0/dist/simple-statistics.min.js"></script>
-  <script>
-    // simple-statistics를 전역 ss 변수로 설정
-    window.ss = window.ss || window.simpleStatistics;
-  </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   
   <!-- 폰트 -->
@@ -364,19 +360,6 @@
     </div>
   </div>
 
-  <!-- 외부 라이브러리 초기화 -->
-  <script>
-    // simple-statistics를 전역 ss 변수로 설정
-    window.ss = null;
-    window.simpleStatistics = null;
-    window.addEventListener('load', () => {
-      window.ss = window.ss || window.simpleStatistics;
-      if (!window.ss) {
-        console.error('simple-statistics 라이브러리가 로드되지 않았습니다.');
-      }
-    });
-  </script>
-
   <!-- 스크립트 로드 순서 -->
   <script src="js/config.js"></script>
   <script src="js/utils.js"></script>
@@ -387,25 +370,24 @@
   <!-- 애플리케이션 초기화 -->
   <script>
     window.addEventListener('load', () => {
+      // simple-statistics를 전역 ss 변수로 설정
+      window.ss = window.ss || window.simpleStatistics;
+
       // 모듈 로드 확인
-      if (!window.ss) {
-        Components.Toast.error('simple-statistics 라이브러리가 로드되지 않았습니다.');
-        return;
-      }
-      if (!window.Statistics) {
-        Components.Toast.error('Statistics 모듈이 로드되지 않았습니다.');
-        return;
-      }
-      if (!window.CONFIG) {
-        Components.Toast.error('CONFIG 모듈이 로드되지 않았습니다.');
-        return;
-      }
-      if (!window.Utils) {
-        Components.Toast.error('Utils 모듈이 로드되지 않았습니다.');
-        return;
-      }
-      if (!window.Components) {
-        Components.Toast.error('Components 모듈이 로드되지 않았습니다.');
+      const requiredModules = {
+        'simple-statistics': window.ss,
+        'Statistics': window.Statistics,
+        'CONFIG': window.CONFIG,
+        'Utils': window.Utils,
+        'Components': window.Components
+      };
+
+      const missingModules = Object.entries(requiredModules)
+        .filter(([_, module]) => !module)
+        .map(([name]) => name);
+
+      if (missingModules.length > 0) {
+        Components.Toast.error(`다음 모듈이 로드되지 않았습니다: ${missingModules.join(', ')}`);
         return;
       }
 
