@@ -5,7 +5,8 @@ class StatsApp {
     this.fields = [];
     this.currentAnalysis = null;
     this.analysisHistory = [];
-    
+    this.analysisHandlers = this.createAnalysisHandlers();
+
     this.init();
   }
 
@@ -16,8 +17,90 @@ class StatsApp {
     this.setupFileUpload();
     this.loadAnalysisHistory();
     this.updateUI();
-    
+
     Components.Toast.success('통계 분석 서비스가 준비되었습니다!');
+  }
+
+  createAnalysisHandlers() {
+    return {
+      descriptive: {
+        name: '기초통계량',
+        computeStatistics: (xData, yData) => ({
+          x: Statistics.Descriptive.calculate(xData),
+          y: Statistics.Descriptive.calculate(yData)
+        }),
+        createChart: (xData, yData, independentVar, dependentVar) =>
+          this.createHistogramChart(xData, yData, independentVar, dependentVar),
+        buildTable: (result) => ({
+          headers: ['변수', '평균', '중앙값', '표준편차', '최소값', '최대값'],
+          rows: [
+            [
+              result.independentVar,
+              result.statistics.x.mean.toFixed(3),
+              result.statistics.x.median.toFixed(3),
+              result.statistics.x.std.toFixed(3),
+              result.statistics.x.min.toFixed(3),
+              result.statistics.x.max.toFixed(3)
+            ],
+            [
+              result.dependentVar,
+              result.statistics.y.mean.toFixed(3),
+              result.statistics.y.median.toFixed(3),
+              result.statistics.y.std.toFixed(3),
+              result.statistics.y.min.toFixed(3),
+              result.statistics.y.max.toFixed(3)
+            ]
+          ]
+        })
+      },
+      scatter: {
+        name: '산점도',
+        computeStatistics: (xData, yData) => Statistics.Correlation.pearson(xData, yData),
+        createChart: (xData, yData, independentVar, dependentVar) =>
+          this.createScatterChart(xData, yData, independentVar, dependentVar),
+        buildTable: (result) => ({
+          headers: ['분석 유형', '상관계수', 'p-값', '유의성', '강도'],
+          rows: [[
+            '피어슨 상관분석',
+            result.statistics.correlation.toFixed(3),
+            result.statistics.pValue.toFixed(4),
+            this.formatSignificance(result.statistics.significant),
+            result.statistics.strength
+          ]]
+        }),
+        buildSummary: (result) => `
+          <ul>
+            <li><strong>상관계수:</strong> ${result.statistics.correlation.toFixed(3)}</li>
+            <li><strong>p-값:</strong> ${result.statistics.pValue.toFixed(4)}</li>
+            <li><strong>유의성:</strong> ${this.formatSignificance(result.statistics.significant, true)}</li>
+            <li><strong>상관관계 강도:</strong> ${result.statistics.strength}</li>
+          </ul>
+        `
+      },
+      'regression-simple': {
+        name: '단순선형회귀',
+        computeStatistics: (xData, yData) => Statistics.Regression.simpleLinear(xData, yData),
+        createChart: (xData, yData, independentVar, dependentVar, statistics) =>
+          this.createRegressionChart(xData, yData, independentVar, dependentVar, statistics),
+        buildTable: (result) => ({
+          headers: ['계수', '값', '해석'],
+          rows: [
+            ['절편', result.statistics.intercept.toFixed(3), '기준값'],
+            ['기울기', result.statistics.slope.toFixed(3), '변화율'],
+            ['R²', result.statistics.r2.toFixed(3), '설명력'],
+            ['p-값', result.statistics.pValue.toFixed(4), this.formatSignificance(result.statistics.significant)]
+          ]
+        }),
+        buildSummary: (result) => `
+          <ul>
+            <li><strong>R²:</strong> ${result.statistics.r2.toFixed(3)}</li>
+            <li><strong>회귀식:</strong> ${result.statistics.equation}</li>
+            <li><strong>p-값:</strong> ${result.statistics.pValue.toFixed(4)}</li>
+            <li><strong>유의성:</strong> ${this.formatSignificance(result.statistics.significant, true)}</li>
+          </ul>
+        `
+      }
+    };
   }
 
   // 설정 로드
@@ -181,71 +264,83 @@ class StatsApp {
     }
     
     const spinner = Components.Spinner.showFullscreen('분석을 실행하고 있습니다...');
-    
+
     try {
       const result = this.performAnalysis(method, independentVar, dependentVar);
       this.currentAnalysis = result;
-      
+
       this.renderResults(result);
       this.addToHistory(result);
       this.showAnalysisResults();
-      
-      Components.Spinner.hide(spinner);
+
       Components.Toast.success('분석이 완료되었습니다!');
-      
     } catch (error) {
-      Components.Spinner.hide(spinner);
       Components.Toast.error(`분석 중 오류가 발생했습니다: ${error.message}`);
+    } finally {
+      Components.Spinner.hide(spinner);
     }
   }
 
   // 분석 수행
   performAnalysis(method, independentVar, dependentVar) {
-    const xData = this.data.map(row => parseFloat(row[independentVar])).filter(v => !isNaN(v));
-    const yData = this.data.map(row => parseFloat(row[dependentVar])).filter(v => !isNaN(v));
-    
-    if (xData.length === 0 || yData.length === 0) {
-      throw new Error('유효한 수치형 데이터가 필요합니다.');
-    }
-    
+    const handler = this.getAnalysisHandler(method, { strict: true });
+    const xData = this.getNumericData(independentVar);
+    const yData = this.getNumericData(dependentVar);
+
+    this.validateNumericData(xData, yData);
+
     const timestamp = new Date().toISOString();
     const analysisId = `analysis_${timestamp}`;
-    
-    let result = {
+
+    const statistics = handler.computeStatistics
+      ? handler.computeStatistics(xData, yData, independentVar, dependentVar)
+      : null;
+
+    const chart = handler.createChart
+      ? handler.createChart(xData, yData, independentVar, dependentVar, statistics)
+      : null;
+
+    return {
       id: analysisId,
       method,
       independentVar,
       dependentVar,
       timestamp,
       dataSize: xData.length,
-      statistics: null,
-      chart: null
+      statistics,
+      chart
     };
-    
-    switch (method) {
-      case 'descriptive':
-        result.statistics = {
-          x: Statistics.Descriptive.calculate(xData),
-          y: Statistics.Descriptive.calculate(yData)
-        };
-        result.chart = this.createHistogramChart(xData, yData, independentVar, dependentVar);
-        break;
-        
-      case 'scatter':
-        result.statistics = Statistics.Correlation.pearson(xData, yData);
-        result.chart = this.createScatterChart(xData, yData, independentVar, dependentVar);
-        break;
-        
-      case 'regression-simple':
-        result.statistics = Statistics.Regression.simpleLinear(xData, yData);
-        result.chart = this.createRegressionChart(xData, yData, independentVar, dependentVar, result.statistics);
-        break;
-        
-      default:
-        throw new Error('지원하지 않는 분석 방법입니다.');
+  }
+
+  getAnalysisHandler(method, { strict = false } = {}) {
+    const handler = this.analysisHandlers[method];
+    if (!handler && strict) {
+      throw new Error('지원하지 않는 분석 방법입니다.');
     }
-    
-    return result;
+    return handler;
+  }
+
+  getNumericData(field) {
+    return this.data.reduce((values, row) => {
+      const value = Number.parseFloat(row[field]);
+      if (Number.isFinite(value)) {
+        values.push(value);
+      }
+      return values;
+    }, []);
+  }
+
+  validateNumericData(...datasets) {
+    const hasInvalidDataset = datasets.some(data => !Array.isArray(data) || data.length === 0);
+
+    if (hasInvalidDataset) {
+      throw new Error('유효한 수치형 데이터가 필요합니다.');
+    }
+  }
+
+  formatSignificance(isSignificant, detailed = false) {
+    const label = isSignificant ? '유의함' : '유의하지 않음';
+    return detailed ? `통계적으로 ${label}` : label;
   }
 
   // 차트 생성 함수들
@@ -335,57 +430,36 @@ class StatsApp {
   // 표 결과 렌더링
   renderTableResult(result) {
     const container = Utils.DOM.$('#resultTableContainer');
-    
-    if (!result.statistics) {
-      container.innerHTML = '<p class="text-secondary">이 분석에는 표 형태의 결과가 없습니다.</p>';
+    const handler = this.getAnalysisHandler(result.method);
+    const emptyMessage = '<p class="text-secondary">이 분석에는 표 형태의 결과가 없습니다.</p>';
+
+    if (!result.statistics || !handler || !handler.buildTable) {
+      container.innerHTML = emptyMessage;
       return;
     }
-    
-    let tableData = [];
-    let headers = [];
-    
-    if (result.method === 'descriptive') {
-      headers = ['변수', '평균', '중앙값', '표준편차', '최소값', '최대값'];
-      tableData = [
-        [result.independentVar, 
-         result.statistics.x.mean.toFixed(3),
-         result.statistics.x.median.toFixed(3),
-         result.statistics.x.std.toFixed(3),
-         result.statistics.x.min.toFixed(3),
-         result.statistics.x.max.toFixed(3)],
-        [result.dependentVar,
-         result.statistics.y.mean.toFixed(3),
-         result.statistics.y.median.toFixed(3),
-         result.statistics.y.std.toFixed(3),
-         result.statistics.y.min.toFixed(3),
-         result.statistics.y.max.toFixed(3)]
-      ];
-    } else if (result.method === 'scatter') {
-      headers = ['분석 유형', '상관계수', 'p-값', '유의성', '강도'];
-      tableData = [[
-        '피어슨 상관분석',
-        result.statistics.correlation.toFixed(3),
-        result.statistics.pValue.toFixed(4),
-        result.statistics.significant ? '유의함' : '유의하지 않음',
-        result.statistics.strength
-      ]];
-    } else if (result.method === 'regression-simple') {
-      headers = ['계수', '값', '해석'];
-      tableData = [
-        ['절편', result.statistics.intercept.toFixed(3), '기준값'],
-        ['기울기', result.statistics.slope.toFixed(3), '변화율'],
-        ['R²', result.statistics.r2.toFixed(3), '설명력'],
-        ['p-값', result.statistics.pValue.toFixed(4), result.statistics.significant ? '유의함' : '유의하지 않음']
-      ];
+
+    const tableConfig = handler.buildTable(result);
+
+    if (!tableConfig) {
+      container.innerHTML = emptyMessage;
+      return;
     }
-    
-    const table = Components.Table.create(tableData, {
+
+    const { headers = [], rows = [], options = {} } = tableConfig;
+
+    if (!rows || rows.length === 0) {
+      container.innerHTML = emptyMessage;
+      return;
+    }
+
+    const table = Components.Table.create(rows, {
       headers,
       sortable: false,
       searchable: false,
-      pagination: false
+      pagination: false,
+      ...options
     });
-    
+
     container.innerHTML = '';
     container.appendChild(table);
   }
@@ -443,38 +517,25 @@ class StatsApp {
 
   // 분석 방법 이름 가져오기
   getMethodName(method) {
-    const methodNames = {
-      'descriptive': '기초통계량',
-      'scatter': '산점도',
-      'regression-simple': '단순선형회귀'
-    };
-    
-    return methodNames[method] || method;
+    const handler = this.getAnalysisHandler(method);
+    return handler?.name || method;
   }
 
   // 통계 요약 가져오기
   getStatisticsSummary(result) {
-    if (result.method === 'scatter') {
-      return `
-        <ul>
-          <li><strong>상관계수:</strong> ${result.statistics.correlation.toFixed(3)}</li>
-          <li><strong>p-값:</strong> ${result.statistics.pValue.toFixed(4)}</li>
-          <li><strong>유의성:</strong> ${result.statistics.significant ? '통계적으로 유의함' : '통계적으로 유의하지 않음'}</li>
-          <li><strong>상관관계 강도:</strong> ${result.statistics.strength}</li>
-        </ul>
-      `;
-    } else if (result.method === 'regression-simple') {
-      return `
-        <ul>
-          <li><strong>R²:</strong> ${result.statistics.r2.toFixed(3)}</li>
-          <li><strong>회귀식:</strong> ${result.statistics.equation}</li>
-          <li><strong>p-값:</strong> ${result.statistics.pValue.toFixed(4)}</li>
-          <li><strong>유의성:</strong> ${result.statistics.significant ? '통계적으로 유의함' : '통계적으로 유의하지 않음'}</li>
-        </ul>
-      `;
+    const defaultMessage = '<p>상세한 통계 결과는 표 탭에서 확인하세요.</p>';
+
+    if (!result.statistics) {
+      return defaultMessage;
     }
-    
-    return '<p>상세한 통계 결과는 표 탭에서 확인하세요.</p>';
+
+    const handler = this.getAnalysisHandler(result.method);
+
+    if (!handler || !handler.buildSummary) {
+      return defaultMessage;
+    }
+
+    return handler.buildSummary(result) || defaultMessage;
   }
 
   // 분석 결과 표시
@@ -570,11 +631,6 @@ class StatsApp {
 }
 
 // 애플리케이션 초기화
-let app;
-
 document.addEventListener('DOMContentLoaded', () => {
-  app = new StatsApp();
+  window.app = new StatsApp();
 });
-
-// 전역 함수로 노출
-window.app = app;
